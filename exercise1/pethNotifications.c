@@ -30,13 +30,13 @@ int send_pethPsePortOnOffNotification_trap(int grpid, int portid, int status)
     /*
      * Add any objects from the trap definition
      */
-    snmp_varlist_add_variable(&var_list, pethPsePortDetectionStatus_oid, OID_LENGTH(pethPsePortDetectionStatus_oid), ASN_INTEGER, NULL, status);
+    snmp_varlist_add_variable(&var_list, pethPsePortDetectionStatus_oid, OID_LENGTH(pethPsePortDetectionStatus_oid), ASN_INTEGER, &status, sizeof(status));
 
     /*
      * Add any extra (optional) objects here
      */
-    snmp_varlist_add_variable(&var_list, pethPsePortGroupIndex_oid, OID_LENGTH(pethPsePortGroupIndex_oid), ASN_INTEGER, NULL, grpid);
-    snmp_varlist_add_variable(&var_list, pethPsePortIndex_oid, OID_LENGTH(pethPsePortIndex_oid), ASN_INTEGER, NULL, portid);
+    snmp_varlist_add_variable(&var_list, pethPsePortGroupIndex_oid, OID_LENGTH(pethPsePortGroupIndex_oid), ASN_INTEGER, &grpid, sizeof(grpid));
+    snmp_varlist_add_variable(&var_list, pethPsePortIndex_oid, OID_LENGTH(pethPsePortIndex_oid), ASN_INTEGER, &portid, sizeof(portid));
 
     /*
      * Send the trap to the list of configured destinations

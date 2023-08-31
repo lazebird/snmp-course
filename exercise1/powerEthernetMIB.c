@@ -76,7 +76,7 @@ struct variable powerEthernetMIB_variables[] = {
 /** Initializes the powerEthernetMIB module */
 void init_powerEthernetMIB(void)
 {
-    DEBUGMSGTL(("powerEthernetMIB", "Initializing\n"));
+    printf("powerEthernetMIB Initializing, sizeof(int)=%d, sizeof(long)=%d\n", sizeof(int), sizeof(long));
 
     /* register ourselves with the agent to handle our mib tree */
     REGISTER_MIB("powerEthernetMIB", powerEthernetMIB_variables, variable, powerEthernetMIB_variables_oid);
