@@ -214,6 +214,7 @@ int write_pethPsePortAdminEnable(int action, u_char *var_val, u_char var_val_typ
     if (var_val_len != sizeof(long)) return SNMP_ERR_WRONGLENGTH;
     value = *(long *)var_val;
     if (value != 1 && value != 2) return SNMP_ERR_BADVALUE;
+    if (p->admin_enable == value) return SNMP_ERR_NOERROR; // no change
     p->admin_enable = value;
     send_pethPsePortOnOffNotification_trap(p->grpid, p->portid, value == 1 ? 3 : 1);
     return SNMP_ERR_NOERROR;
