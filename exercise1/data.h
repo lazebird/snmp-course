@@ -10,4 +10,7 @@ typedef struct {
 
 extern port_t tbl[];
 
+port_t *get_data(int grpid, int portid);
+port_t *getn_data(int grpid, int portid);
+
 #endif

@@ -76,7 +76,7 @@ struct variable powerEthernetMIB_variables[] = {
 /** Initializes the powerEthernetMIB module */
 void init_powerEthernetMIB(void)
 {
-    printf("powerEthernetMIB Initializing, sizeof(int)=%d, sizeof(long)=%d\n", sizeof(int), sizeof(long));
+    printf("powerEthernetMIB Initializing, sizeof(int)=%ld, sizeof(long)=%ld\n", sizeof(int), sizeof(long));
 
     /* register ourselves with the agent to handle our mib tree */
     REGISTER_MIB("powerEthernetMIB", powerEthernetMIB_variables, variable, powerEthernetMIB_variables_oid);
@@ -125,7 +125,7 @@ static char *oid2str(oid *name, int length)
     static int bufid = 0;
     char *p = buf[bufid];
     int offset = 0;
-    for (int i = 0; i < length; i++) offset += snprintf(p + offset, BUFLEN - offset, ".%d", name[i]);
+    for (int i = 0; i < length; i++) offset += snprintf(p + offset, BUFLEN - offset, ".%ld", name[i]);
     bufid = (bufid + 1) % BUFNUM;
     return p;
 }
@@ -138,23 +138,14 @@ static char *oid2str(oid *name, int length)
 unsigned char *var_pethPsePortTable(struct variable *vp, oid *name, size_t *length, int exact, size_t *var_len, WriteMethod **write_method)
 {
     int grpid, portid;
-    port_t *p = NULL;
     printf("vp->name %s, name %s, exact %d, magic %d\n", oid2str(vp->name, vp->namelen), oid2str(name, *length), exact, vp->magic);
     pseport_oid2index(vp, name, length, &grpid, &portid);
-    if (exact) {
-        if (grpid || portid < 0 || portid > 1) {
-            printf("invalid index %d, %d\n", grpid, portid);
-            return NULL;
-        }
-        p = &tbl[portid];
-    } else {
-        if (grpid > 0 || portid > 0) {
-            printf("invalid index %d, %d\n", grpid, portid);
-            return NULL;
-        }
-        p = &tbl[portid + 1];
-        pseport_index2oid(vp, name, length, 0, portid + 1);
+    port_t *p = exact ? get_data(grpid, portid) : getn_data(grpid, portid);
+    if (!p) {
+        printf("invalid index %d, %d\n", grpid, portid);
+        return NULL;
     }
+    if (!exact) pseport_index2oid(vp, name, length, p->grpid, p->portid);
 
     /*
      * this is where we do the value assignments for the mib results.
@@ -207,9 +198,13 @@ int write_pethPsePortAdminEnable(int action, u_char *var_val, u_char var_val_typ
     long value;
     int grpid = name[name_len - 2];
     int portid = name[name_len - 1];
-    port_t *p = &tbl[portid];
+    port_t *p = get_data(grpid, portid);
+    if (!p) {
+        printf("invalid index %d, %d\n", grpid, portid);
+        return SNMP_NOSUCHINSTANCE;
+    }
 
-    printf("action %d, var_val_len %d, var_val_type %d, name %s\n", action, var_val_len, var_val_type, oid2str(name, name_len));
+    printf("action %d, var_val_len %ld, var_val_type %d, name %s\n", action, var_val_len, var_val_type, oid2str(name, name_len));
     if (var_val_type != ASN_INTEGER) return SNMP_ERR_WRONGTYPE;
     if (var_val_len != sizeof(long)) return SNMP_ERR_WRONGLENGTH;
     value = *(long *)var_val;
@@ -225,9 +220,13 @@ int write_pethPsePortType(int action, u_char *var_val, u_char var_val_type, size
     if (action != COMMIT) return SNMP_ERR_NOERROR;
     int grpid = name[name_len - 2];
     int portid = name[name_len - 1];
-    port_t *p = &tbl[portid];
+    port_t *p = get_data(grpid, portid);
+    if (!p) {
+        printf("invalid index %d, %d\n", grpid, portid);
+        return SNMP_NOSUCHINSTANCE;
+    }
 
-    printf("action %d, var_val_len %d, var_val_type %d, name %s\n", action, var_val_len, var_val_type, oid2str(name, name_len));
+    printf("action %d, var_val_len %ld, var_val_type %d, name %s\n", action, var_val_len, var_val_type, oid2str(name, name_len));
     if (var_val_type != ASN_OCTET_STR) return SNMP_ERR_WRONGTYPE;
     if (var_val_len >= sizeof(p->type)) return SNMP_ERR_WRONGLENGTH;
     snprintf(p->type, var_val_len + 1, "%s", var_val);
