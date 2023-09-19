@@ -11,46 +11,32 @@
 extern const oid snmptrap_oid[];
 extern const size_t snmptrap_oid_len;
 
-int
-send_fileChange_trap( void )
+int send_fileChange_trap(char *name, int status)
 {
-    netsnmp_variable_list  *var_list = NULL;
-    const oid fileChange_oid[] = { 1,3,6,1,4,1,57430,1,1000,4,1 };
-    const oid fileName_oid[] = { 1,3,6,1,4,1,57430,1,1000,5,1,1, /* insert index here */ };
-    const oid fileRowStatus_oid[] = { 1,3,6,1,4,1,57430,1,1000,5,1,3, /* insert index here */ };
+    netsnmp_variable_list *var_list = NULL;
+    const oid fileChange_oid[] = {1, 3, 6, 1, 4, 1, 57430, 1, 1000, 4, 1};
+    const oid fileName_oid[] = {1, 3, 6, 1, 4, 1, 57430, 1, 1000, 5, 1, 1,
+                                /* insert index here */};
+    const oid fileRowStatus_oid[] = {1, 3, 6, 1, 4, 1, 57430, 1, 1000, 5, 1, 3,
+                                     /* insert index here */};
 
     /*
      * Set the snmpTrapOid.0 value
      */
-    snmp_varlist_add_variable(&var_list,
-        snmptrap_oid, snmptrap_oid_len,
-        ASN_OBJECT_ID,
-        fileChange_oid, sizeof(fileChange_oid));
-    
+    snmp_varlist_add_variable(&var_list, snmptrap_oid, snmptrap_oid_len, ASN_OBJECT_ID, fileChange_oid, sizeof(fileChange_oid));
+
     /*
      * Add any objects from the trap definition
      */
-    snmp_varlist_add_variable(&var_list,
-        fileName_oid, OID_LENGTH(fileName_oid),
-        ASN_OCTET_STR,
-        /* Set an appropriate value for fileName */
-        NULL, 0);
-    snmp_varlist_add_variable(&var_list,
-        fileRowStatus_oid, OID_LENGTH(fileRowStatus_oid),
-        ASN_INTEGER,
-        /* Set an appropriate value for fileRowStatus */
-        NULL, 0);
-
-    /*
-     * Add any extra (optional) objects here
-     */
+    snmp_varlist_add_variable(&var_list, fileName_oid, OID_LENGTH(fileName_oid), ASN_OCTET_STR, name, strlen(name));
+    snmp_varlist_add_variable(&var_list, fileRowStatus_oid, OID_LENGTH(fileRowStatus_oid), ASN_INTEGER, &status, sizeof(status));
 
     /*
      * Send the trap to the list of configured destinations
      *  and clean up
      */
-    send_v2trap( var_list );
-    snmp_free_varbind( var_list );
+    send_v2trap(var_list);
+    snmp_free_varbind(var_list);
 
     return SNMP_ERR_NOERROR;
 }

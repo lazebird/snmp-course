@@ -6,55 +6,53 @@
 #include <net-snmp/net-snmp-config.h>
 #include <net-snmp/net-snmp-includes.h>
 #include <net-snmp/agent/net-snmp-agent-includes.h>
+#include <errno.h>
 #include "training.h"
+#include "file_api.h"
+#include "fileTrap.h"
 
-/* 
+static fileinfo_t **g_tbl;
+static int tblnamelen;
+/*
  * training_variables_oid:
  *   this is the top level oid that we want to register under.  This
  *   is essentially a prefix, with the suffix appearing in the
  *   variable below.
  */
 
-oid training_variables_oid[] = { 1,3,6,1,4,1,57430,1,1000 };
+oid training_variables_oid[] = {1, 3, 6, 1, 4, 1, 57430, 1, 1000};
 
-/* 
+/*
  * variable4 training_variables:
- *   this variable defines function callbacks and type return information 
- *   for the training mib section 
+ *   this variable defines function callbacks and type return information
+ *   for the training mib section
  */
 
 struct variable4 training_variables[] = {
 /*  magic number        , variable type , ro/rw , callback fn  , L, oidsuffix */
-#define VERSION		1
-{VERSION,  ASN_OCTET_STR,  NETSNMP_OLDAPI_RONLY,
- var_training, 1,  { 2 }},
-#define CWD		2
-{CWD,  ASN_OCTET_STR,  NETSNMP_OLDAPI_RWRITE,
- var_training, 1,  { 3 }},
+#define VERSION 1
+    {VERSION, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY, var_training, 1, {2}},
+#define CWD 2
+    {CWD, ASN_OCTET_STR, NETSNMP_OLDAPI_RWRITE, var_training, 1, {3}},
 
-#define FILENAME		1
-{FILENAME,  ASN_OCTET_STR,  NETSNMP_OLDAPI_RWRITE,
- var_fileTable, 3,  { 5 , 1, 1 }},
-#define FILELEN		2
-{FILELEN,  ASN_INTEGER,  NETSNMP_OLDAPI_RONLY,
- var_fileTable, 3,  { 5 , 1, 2 }},
-#define FILEROWSTATUS		3
-{FILEROWSTATUS,  ASN_INTEGER,  NETSNMP_OLDAPI_RWRITE,
- var_fileTable, 3,  { 5 , 1, 3 }},
+#define FILENAME 1
+    {FILENAME, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY, var_fileTable, 3, {5, 1, 1}},
+#define FILELEN 2
+    {FILELEN, ASN_INTEGER, NETSNMP_OLDAPI_RONLY, var_fileTable, 3, {5, 1, 2}},
+#define FILEROWSTATUS 3
+    {FILEROWSTATUS, ASN_INTEGER, NETSNMP_OLDAPI_RWRITE, var_fileTable, 3, {5, 1, 3}},
 };
 /*    (L = length of the oidsuffix) */
 
-
 /** Initializes the training module */
-void
-init_training(void)
+void init_training(void)
 {
-
+    cwd_set("."); // init cwd
+    g_tbl = file_read(cwd_get());
     DEBUGMSGTL(("training", "Initializing\n"));
 
     /* register ourselves with the agent to handle our mib tree */
-    REGISTER_MIB("training", training_variables, variable4,
-               training_variables_oid);
+    REGISTER_MIB("training", training_variables, variable4, training_variables_oid);
 
     /* place any other initialization junk you need here */
 }
@@ -71,263 +69,123 @@ init_training(void)
  *   module extensions, and check out the examples in the examples
  *   and mibII directories.
  */
-unsigned char *
-var_training(struct variable *vp, 
-                oid     *name, 
-                size_t  *length, 
-                int     exact, 
-                size_t  *var_len, 
-                WriteMethod **write_method)
+unsigned char *var_training(struct variable *vp, oid *name, size_t *length, int exact, size_t *var_len, WriteMethod **write_method)
 {
-    /* variables we may use later */
-    static long long_ret;
-    static u_long ulong_ret;
-    static unsigned char string[SPRINT_MAX_LEN];
-    static oid objid[MAX_OID_LEN];
-    static struct counter64 c64;
+    char *p;
 
-    if (header_generic(vp,name,length,exact,var_len,write_method)
-                                  == MATCH_FAILED )
-    return NULL;
-
-    /* 
-   * this is where we do the value assignments for the mib results.
-   */
-    switch(vp->magic) {
+    switch (vp->magic) {
     case VERSION:
-        VAR = VALUE;	/* XXX */
-        return (u_char*) &VAR;
+        p = version_get();
+        *var_len = strlen(p);
+        return (u_char *)p;
     case CWD:
         *write_method = write_cwd;
-        VAR = VALUE;	/* XXX */
-        return (u_char*) &VAR;
+        p = cwd_get();
+        *var_len = strlen(p);
+        return (u_char *)p;
     default:
-      ERROR_MSG("");
+        fprintf(stderr, "unknown magic %d.\n", vp->magic);
     }
+    *var_len = 0;
     return NULL;
 }
 
+static int oid2name(struct variable *vp, oid *name, size_t *length, char *buf, int bufsz) // attention: name len overflow
+{
+    // printf("vp namelen %d, name length %d, namelen %d\n", vp->namelen, *length, bufsz);
+    if (!tblnamelen) tblnamelen = vp->namelen;
+    int i;
+    for (i = 0; i < *length - vp->namelen && i < bufsz - 1; i++) buf[i] = (char)name[vp->namelen + i];
+    buf[i] = 0;
+    return i > 0 && i < bufsz - 1;
+}
+static int name2oid(struct variable *vp, oid *name, size_t *length, char *buf)
+{
+    for (int i = 0; i < strlen(buf); i++) name[vp->namelen + i] = (int)buf[i];
+    *length = vp->namelen + strlen(buf);
+    return 1;
+}
 
 /*
  * var_fileTable():
  *   Handle this table separately from the scalar value case.
  *   The workings of this are basically the same as for var_training above.
  */
-unsigned char *
-var_fileTable(struct variable *vp,
-    	    oid     *name,
-    	    size_t  *length,
-    	    int     exact,
-    	    size_t  *var_len,
-    	    WriteMethod **write_method)
+unsigned char *var_fileTable(struct variable *vp, oid *name, size_t *length, int exact, size_t *var_len, WriteMethod **write_method)
 {
-    /* variables we may use later */
-    static long long_ret;
-    static u_long ulong_ret;
-    static unsigned char string[SPRINT_MAX_LEN];
-    static oid objid[MAX_OID_LEN];
-    static struct counter64 c64;
+    char buf[MAX_FILENAME_LEN];
+    oid2name(vp, name, length, buf, sizeof(buf));
+    if (!g_tbl) return NULL;
+    fileinfo_t *f = exact ? file_get(g_tbl, buf) : file_getn(g_tbl, buf);
+    if (!exact && f) name2oid(vp, name, length, f->name);
+    if (!f && vp->magic != FILEROWSTATUS) return NULL;
 
-    /* 
-   * This assumes that the table is a 'simple' table.
-   *	See the implementation documentation for the meaning of this.
-   *	You will need to provide the correct value for the TABLE_SIZE parameter
-   *
-   * If this table does not meet the requirements for a simple table,
-   *	you will need to provide the replacement code yourself.
-   *	Mib2c is not smart enough to write this for you.
-   *    Again, see the implementation documentation for what is required.
-   */
-    if (header_simple_table(vp,name,length,exact,var_len,write_method, TABLE_SIZE)
-                                                == MATCH_FAILED )
-    return NULL;
-
-    /* 
-   * this is where we do the value assignments for the mib results.
-   */
-    switch(vp->magic) {
+    /*
+     * this is where we do the value assignments for the mib results.
+     */
+    switch (vp->magic) {
     case FILENAME:
-        *write_method = write_fileName;
-        VAR = VALUE;	/* XXX */
-        return (u_char*) &VAR;
+        *var_len = strlen(f->name);
+        return (u_char *)f->name;
     case FILELEN:
-        VAR = VALUE;	/* XXX */
-        return (u_char*) &VAR;
+        *var_len = sizeof(f->len);
+        return (u_char *)&f->len;
     case FILEROWSTATUS:
         *write_method = write_fileRowStatus;
-        VAR = VALUE;	/* XXX */
-        return (u_char*) &VAR;
+        {
+            static int status = 1;
+            *var_len = sizeof(status);
+            return (u_char *)&status;
+        }
     default:
-      ERROR_MSG("");
+        ERROR_MSG("");
     }
     return NULL;
 }
 
-
-
-int
-write_cwd(int      action,
-            u_char   *var_val,
-            u_char   var_val_type,
-            size_t   var_val_len,
-            u_char   *statP,
-            oid      *name,
-            size_t   name_len)
+int write_cwd(int action, u_char *var_val, u_char var_val_type, size_t var_val_len, u_char *statP, oid *name, size_t name_len)
 {
-    char value;
-    int size;
+    if (action != COMMIT) return SNMP_ERR_NOERROR;
 
-    switch ( action ) {
-        case RESERVE1:
-          if (var_val_type != ASN_OCTET_STR) {
-              fprintf(stderr, "write to training not ASN_OCTET_STR\n");
-              return SNMP_ERR_WRONGTYPE;
-          }
-          if (var_val_len > sizeof(char)) {
-              fprintf(stderr,"write to training: bad length\n");
-              return SNMP_ERR_WRONGLENGTH;
-          }
-          break;
-
-        case RESERVE2:
-          size  = var_val_len;
-          value = * (char *) var_val;
-
-          break;
-
-        case FREE:
-             /* Release any resources that have been allocated */
-          break;
-
-        case ACTION:
-             /*
-              * The variable has been stored in 'value' for you to use,
-              * and you have just been asked to do something with it.
-              * Note that anything done here must be reversable in the UNDO case
-              */
-          break;
-
-        case UNDO:
-             /* Back out any changes made in the ACTION case */
-          break;
-
-        case COMMIT:
-             /*
-              * Things are working well, so it's now safe to make the change
-              * permanently.  Make sure that anything done here can't fail!
-              */
-          break;
+    if (var_val_type != ASN_OCTET_STR) {
+        fprintf(stderr, "write to training not ASN_OCTET_STR\n");
+        return SNMP_ERR_WRONGTYPE;
     }
+    if (var_val_len < sizeof(char)) {
+        fprintf(stderr, "write to training: bad length\n");
+        return SNMP_ERR_WRONGLENGTH;
+    }
+    if (!cwd_set(var_val)) {
+        fprintf(stderr, "set cwd %s, error %s, reset to default\n", var_val, strerror(errno));
+        cwd_set(".");
+        file_free(g_tbl);
+        g_tbl = file_read(cwd_get());
+        return SNMP_ERR_GENERR;
+    }
+    file_free(g_tbl);
+    g_tbl = file_read(cwd_get());
     return SNMP_ERR_NOERROR;
 }
 
-int
-write_fileName(int      action,
-            u_char   *var_val,
-            u_char   var_val_type,
-            size_t   var_val_len,
-            u_char   *statP,
-            oid      *name,
-            size_t   name_len)
+int write_fileRowStatus(int action, u_char *var_val, u_char var_val_type, size_t var_val_len, u_char *statP, oid *name, size_t name_len)
 {
-    char value;
-    int size;
-
-    switch ( action ) {
-        case RESERVE1:
-          if (var_val_type != ASN_OCTET_STR) {
-              fprintf(stderr, "write to training not ASN_OCTET_STR\n");
-              return SNMP_ERR_WRONGTYPE;
-          }
-          if (var_val_len > sizeof(char)) {
-              fprintf(stderr,"write to training: bad length\n");
-              return SNMP_ERR_WRONGLENGTH;
-          }
-          break;
-
-        case RESERVE2:
-          size  = var_val_len;
-          value = * (char *) var_val;
-
-          break;
-
-        case FREE:
-             /* Release any resources that have been allocated */
-          break;
-
-        case ACTION:
-             /*
-              * The variable has been stored in 'value' for you to use,
-              * and you have just been asked to do something with it.
-              * Note that anything done here must be reversable in the UNDO case
-              */
-          break;
-
-        case UNDO:
-             /* Back out any changes made in the ACTION case */
-          break;
-
-        case COMMIT:
-             /*
-              * Things are working well, so it's now safe to make the change
-              * permanently.  Make sure that anything done here can't fail!
-              */
-          break;
+    if (action != COMMIT) return SNMP_ERR_NOERROR;
+    if (var_val_type != ASN_INTEGER) {
+        fprintf(stderr, "write to training not ASN_INTEGER\n");
+        return SNMP_ERR_WRONGTYPE;
     }
-    return SNMP_ERR_NOERROR;
-}
-int
-write_fileRowStatus(int      action,
-            u_char   *var_val,
-            u_char   var_val_type,
-            size_t   var_val_len,
-            u_char   *statP,
-            oid      *name,
-            size_t   name_len)
-{
-    long value;
-    int size;
-
-    switch ( action ) {
-        case RESERVE1:
-          if (var_val_type != ASN_INTEGER) {
-              fprintf(stderr, "write to training not ASN_INTEGER\n");
-              return SNMP_ERR_WRONGTYPE;
-          }
-          if (var_val_len > sizeof(long)) {
-              fprintf(stderr,"write to training: bad length\n");
-              return SNMP_ERR_WRONGLENGTH;
-          }
-          break;
-
-        case RESERVE2:
-          size  = var_val_len;
-          value = * (long *) var_val;
-
-          break;
-
-        case FREE:
-             /* Release any resources that have been allocated */
-          break;
-
-        case ACTION:
-             /*
-              * The variable has been stored in 'value' for you to use,
-              * and you have just been asked to do something with it.
-              * Note that anything done here must be reversable in the UNDO case
-              */
-          break;
-
-        case UNDO:
-             /* Back out any changes made in the ACTION case */
-          break;
-
-        case COMMIT:
-             /*
-              * Things are working well, so it's now safe to make the change
-              * permanently.  Make sure that anything done here can't fail!
-              */
-          break;
+    if (var_val_len > sizeof(long)) {
+        fprintf(stderr, "write to training: bad length\n");
+        return SNMP_ERR_WRONGLENGTH;
     }
+    int status = *(int *)var_val;
+    char buf[MAX_FILENAME_LEN];
+    struct variable vp = {.namelen = tblnamelen};
+    oid2name(&vp, name, &name_len, buf, sizeof(buf));
+    file_set(buf, status);
+    send_fileChange_trap(buf, status);
+    file_free(g_tbl);
+    g_tbl = file_read(cwd_get()); // update file infos
+
     return SNMP_ERR_NOERROR;
 }

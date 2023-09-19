@@ -10,7 +10,6 @@ void init_training(void);
 FindVarMethod var_training;
 FindVarMethod var_fileTable;
     WriteMethod write_cwd;
-    WriteMethod write_fileName;
     WriteMethod write_fileRowStatus;
 
 #endif /* TRAINING_H */

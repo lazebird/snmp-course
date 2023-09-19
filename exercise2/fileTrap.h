@@ -6,6 +6,6 @@
 #define FILETRAP_H
 
 /* function declarations */
-int send_fileChange_trap(void);
+int send_fileChange_trap(char *name, int status);
 
 #endif /* FILETRAP_H */
